@@ -44,17 +44,6 @@ export default function AdminPage() {
     setSelectedUserId(userId);
     setSelectedUserName(userName);
     selectUserChat(userId);
-    
-    // Fetch conversation history
-    if (currentUser.userId) {
-      getConversation(currentUser.userId, userId)
-        .then(data => {
-          if (data.success) {
-            // Messages will be updated via socket
-          }
-        })
-        .catch(err => console.error('Error fetching conversation:', err));
-    }
   };
 
   const handleSend = () => {
@@ -106,7 +95,71 @@ export default function AdminPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, selectedUserId]);
+
+  // Debug: Log messages when they change
+  useEffect(() => {
+    console.log('📊 Total messages in state:', messages.length);
+    if (selectedUserId) {
+      const filtered = messages.filter(msg => 
+        msg.userId === selectedUserId || 
+        msg.toUserId === selectedUserId
+      );
+      console.log(`📊 Filtered messages for ${selectedUserId}:`, filtered.length);
+    }
+  }, [messages, selectedUserId]);
+
+  // Filter messages for selected user
+  const filteredMessages = selectedUserId 
+    ? messages.filter(msg => 
+        msg.userId === selectedUserId || 
+        msg.toUserId === selectedUserId
+      )
+    : [];
+
+  // Get last message for each user
+  const getLastMessage = (userId) => {
+    const userMessages = messages.filter(msg => 
+      msg.userId === userId || msg.toUserId === userId
+    );
+    
+    if (userMessages.length === 0) return null;
+    
+    // Get the most recent message
+    const lastMsg = userMessages[userMessages.length - 1];
+    return lastMsg;
+  };
+
+  // Count unread messages (messages from user that are not from admin)
+  const getUnreadCount = (userId) => {
+    if (selectedUserId === userId) return 0; // No unread if currently viewing
+    
+    const unreadMessages = messages.filter(msg => 
+      msg.userId === userId && 
+      msg.userType !== 'admin' && 
+      msg.userType !== 'support'
+    );
+    
+    return unreadMessages.length;
+  };
+
+  // Truncate message for preview
+  const truncateMessage = (text, maxLength = 30) => {
+    if (!text) return '';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+  };
+
+  // Sort users by most recent message
+  const sortedOnlineUsers = [...onlineUsers].sort((a, b) => {
+    const lastMsgA = getLastMessage(a.userId);
+    const lastMsgB = getLastMessage(b.userId);
+    
+    if (!lastMsgA && !lastMsgB) return 0;
+    if (!lastMsgA) return 1;
+    if (!lastMsgB) return -1;
+    
+    return new Date(lastMsgB.timestamp) - new Date(lastMsgA.timestamp);
+  });
 
   if (!isLoggedIn) {
     return (
@@ -169,31 +222,63 @@ export default function AdminPage() {
       {/* Sidebar */}
       <div className="admin-sidebar">
         <div className="sidebar-header">
-          <h2>👥 Online Users</h2>
-          <div style={{ marginTop: '10px' }}>
-            <span className="status-badge"></span>
-            <span>{onlineUsers.length} users online</span>
+          <h2>👥 Chats</h2>
+          <div style={{ marginTop: '10px', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>
+              <span className="status-badge"></span>
+              {sortedOnlineUsers.length} online
+            </span>
+            {sortedOnlineUsers.filter(u => getUnreadCount(u.userId) > 0).length > 0 && (
+              <span style={{ background: 'rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '12px', fontSize: '12px' }}>
+                {sortedOnlineUsers.reduce((sum, u) => sum + getUnreadCount(u.userId), 0)} unread
+              </span>
+            )}
           </div>
         </div>
         <div className="online-users-list">
-          {onlineUsers.length === 0 ? (
+          {sortedOnlineUsers.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#999', padding: '20px' }}>
               No users online
             </div>
           ) : (
-            onlineUsers.map((user) => (
-              <div
-                key={user.userId}
-                className={`user-item ${selectedUserId === user.userId ? 'active' : ''}`}
-                onClick={() => handleSelectUser(user.userId, user.userName)}
-              >
-                <div className="user-item-name">
-                  <span className="status-badge"></span>
-                  {user.userName}
+            sortedOnlineUsers.map((user) => {
+              const lastMessage = getLastMessage(user.userId);
+              const unreadCount = getUnreadCount(user.userId);
+              return (
+                <div
+                  key={user.userId}
+                  className={`user-item ${selectedUserId === user.userId ? 'active' : ''}`}
+                  onClick={() => handleSelectUser(user.userId, user.userName)}
+                >
+                  <div className="user-item-header">
+                    <div className="user-item-name">
+                      <span className="status-badge"></span>
+                      {user.userName}
+                    </div>
+                    {lastMessage && (
+                      <div className="user-item-time">
+                        {formatTime(lastMessage.timestamp)}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {lastMessage && (
+                      <div className="user-item-preview">
+                        <span className={lastMessage.userType === 'user' ? 'preview-user' : 'preview-admin'}>
+                          {lastMessage.userType === 'admin' ? 'You: ' : ''}
+                        </span>
+                        {truncateMessage(lastMessage.message)}
+                      </div>
+                    )}
+                    {unreadCount > 0 && (
+                      <div className="unread-badge">
+                        {unreadCount}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {/* <div className="user-item-id">{user.userId}</div> */}
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -217,21 +302,22 @@ export default function AdminPage() {
               </div>
             </div>
             <div className="chat-messages" id="messagesContainer">
-              {messages.filter(msg => 
-                msg.userId === selectedUserId || 
-                msg.toUserId === selectedUserId ||
-                (msg.userType === 'admin' && msg.toUserId === selectedUserId)
-              ).map((msg, index) => (
-                <div
-                  key={index}
-                  className={`message ${msg.userType === 'admin' ? 'admin-message' : 'user-message'}`}
-                >
-                  <div className="message-bubble">{msg.message}</div>
-                  <div className="message-info">
-                    {msg.userName} • {formatTime(msg.timestamp)}
+              {filteredMessages.map((msg, index) => {
+                // Simply check the userType field from the database
+                const isAdminMessage = msg.userType === 'admin' || msg.userType === 'support';
+                
+                return (
+                  <div
+                    key={index}
+                    className={`message ${isAdminMessage ? 'admin-message' : 'user-message'}`}
+                  >
+                    <div className="message-bubble">{msg.message}</div>
+                    <div className="message-info">
+                      {msg.userName} • {formatTime(msg.timestamp)}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
             {typingIndicator && (
@@ -258,4 +344,3 @@ export default function AdminPage() {
     </div>
   );
 }
-

@@ -6,20 +6,7 @@ import { initSocket } from '@/lib/socket';
 export const useSocket = () => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [messages, setMessages] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('chat-messages');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error('Error parsing messages from localStorage', e);
-          return [];
-        }
-      }
-    }
-    return [];
-  });
+  const [messages, setMessages] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState({
     userId: null,
@@ -27,12 +14,7 @@ export const useSocket = () => {
     userType: null,
   });
   const socketRef = useRef(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('chat-messages', JSON.stringify(messages));
-    }
-  }, [messages]);
+  const hasLoadedHistory = useRef(false);
 
   useEffect(() => {
     const socketInstance = initSocket();
@@ -59,22 +41,65 @@ export const useSocket = () => {
     });
 
     socketInstance.on('message-history', (history) => {
+      console.log('📜 Received message history:', history.length, 'messages');
+      
+      // For admin: completely replace messages with history from database
+      // For users: merge with existing messages
       setMessages((prev) => {
+        // If this is the first load, just use the history
+        if (!hasLoadedHistory.current) {
+          hasLoadedHistory.current = true;
+          return history;
+        }
+        
+        // Otherwise, merge avoiding duplicates
         const combined = [...prev];
         history.forEach((msg) => {
-          if (!combined.some((m) => m.id === msg.id)) {
+          const exists = combined.some((m) => 
+            m.id === msg.id || 
+            (m.timestamp === msg.timestamp && 
+             m.userId === msg.userId && 
+             m.message === msg.message)
+          );
+          if (!exists) {
             combined.push(msg);
           }
         });
-        return combined;
+        
+        // Sort by timestamp
+        return combined.sort((a, b) => 
+          new Date(a.timestamp) - new Date(b.timestamp)
+        );
       });
     });
 
     socketInstance.on('new-message', (message) => {
-      setMessages((prev) => [...prev, message]);
+      console.log('📨 New message received:', message);
+      setMessages((prev) => {
+        // Check if message already exists
+        const exists = prev.some((m) => 
+          m.id === message.id || 
+          (m.timestamp === message.timestamp && 
+           m.userId === message.userId && 
+           m.message === message.message)
+        );
+        
+        if (exists) {
+          return prev;
+        }
+        
+        return [...prev, message];
+      });
+    });
+
+    socketInstance.on('user-chat-history', (data) => {
+      console.log('📜 Received user chat history:', data);
+      // This is for when admin selects a specific user
+      // We already have all messages, so we can ignore this
     });
 
     socketInstance.on('online-users', (users) => {
+      console.log('👥 Online users updated:', users);
       setOnlineUsers(users);
     });
 
@@ -101,6 +126,7 @@ export const useSocket = () => {
         socketRef.current.off('joined-chat');
         socketRef.current.off('message-history');
         socketRef.current.off('new-message');
+        socketRef.current.off('user-chat-history');
         socketRef.current.off('online-users');
         socketRef.current.off('new-user-online');
         socketRef.current.off('user-offline');
@@ -111,7 +137,6 @@ export const useSocket = () => {
   }, []);
 
   const joinChat = (userId, userName, userType) => {
-    
     if (socketRef.current) {
       socketRef.current.emit('join-chat', {
         userId,
@@ -157,4 +182,3 @@ export const useSocket = () => {
     selectUserChat,
   };
 };
-

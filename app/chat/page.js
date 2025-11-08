@@ -10,6 +10,7 @@ export default function ChatPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [typingIndicator, setTypingIndicator] = useState(false);
   const [isMinimized, setIsMinimized] = useState(true);
+  const [isWidgetOpen, setIsWidgetOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
@@ -37,12 +38,14 @@ export default function ChatPage() {
     }
     setUserName(name);
     setIsLoggedIn(true);
+    console.log('👤 User joining chat:', { userId, name, type: 'user' });
     joinChat(userId, name, 'user');
   };
 
   const handleSend = () => {
     if (!message.trim()) return;
     
+    console.log('📤 Sending message:', message);
     sendMessage(message);
     setMessage('');
     setTypingIndicator(false);
@@ -85,80 +88,121 @@ export default function ChatPage() {
     });
   };
 
+  const toggleWidget = () => {
+    if (!isLoggedIn && !isWidgetOpen) {
+      setIsWidgetOpen(true);
+    } else if (isLoggedIn) {
+      setIsWidgetOpen(!isWidgetOpen);
+    } else {
+      setIsWidgetOpen(!isWidgetOpen);
+    }
+  };
+
+  const closeWidget = () => {
+    setIsWidgetOpen(false);
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  if (!isLoggedIn) {
-    return (
-      <div className="chat-container">
-        <div className="chat-header">
-          <h2>💬 Live Chat Support</h2>
-        </div>
-        <div className="login-form">
-          <h3>Enter Your Name</h3>
-          <input
-            type="text"
-            className="login-input"
-            placeholder="Your Name"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleJoin()}
-            maxLength={50}
-          />
-          <button className="login-button" onClick={handleJoin}>
-            Start Chat
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Debug: Log messages when they change
+  useEffect(() => {
+    console.log('📊 User view - Total messages:', messages.length);
+  }, [messages]);
 
   return (
-    <div className="chat-container">
-      <div className="chat-header">
-        <h2>💬 Live Chat Support</h2>
-        <div>
-          <span className={`status-indicator ${isConnected ? 'online' : 'offline'}`}></span>
-          <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+    <>
+      {/* Floating Chat Button */}
+      <button 
+        className="floating-chat-button" 
+        onClick={toggleWidget}
+        aria-label="Open chat"
+      >
+        {isWidgetOpen ? '✕' : '💬'}
+      </button>
+
+      {/* Chat Widget Modal */}
+      {isWidgetOpen && (
+        <div className={`chat-widget ${isWidgetOpen ? 'chat-widget-open' : 'chat-widget-minimized'}`}>
+          {!isLoggedIn ? (
+            <>
+              <div className="chat-header">
+                <h2>💬 Live Chat Support</h2>
+                <button className="close-widget-btn" onClick={closeWidget}>✕</button>
+              </div>
+              <div className="login-form">
+                <h3>Welcome! 👋</h3>
+                <p style={{ color: '#718096', marginBottom: '20px', fontSize: '14px' }}>
+                  Start a conversation with our support team
+                </p>
+                <input
+                  type="text"
+                  className="login-input"
+                  placeholder="Enter your name"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleJoin()}
+                  maxLength={50}
+                />
+                <button className="login-button" onClick={handleJoin}>
+                  Start Chat
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="chat-header">
+                <div>
+                  <h2>💬 Live Support</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <span className={`status-indicator ${isConnected ? 'online' : 'offline'}`}></span>
+                    <span style={{ fontSize: '13px', opacity: 0.9 }}>
+                      {isConnected ? 'We\'re online' : 'Connecting...'}
+                    </span>
+                  </div>
+                </div>
+                <button className="close-widget-btn" onClick={closeWidget}>✕</button>
+              </div>
+
+              <div className="chat-messages" id="messagesContainer">
+                {messages.map((msg, index) => (
+                  <div
+                    key={`${msg.id || index}-${msg.timestamp}`}
+                    className={`message ${msg.userType === 'user' ? 'user-message' : 'support-message'}`}
+                  >
+                    <div className="message-bubble">{msg.message}</div>
+                    <div className="message-info">
+                      {msg.userName} • {formatTime(msg.timestamp)}
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {typingIndicator && (
+                <div className="typing-indicator">Support is typing...</div>
+              )}
+
+              <div className="chat-input-container">
+                <div className="chat-input-wrapper">
+                  <input
+                    type="text"
+                    className="chat-input"
+                    placeholder="Type your message..."
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                  />
+                  <button className="send-button" onClick={handleSend}>
+                    ➤
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </div>
-
-      <div className="chat-messages" id="messagesContainer">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`message ${msg.userType === 'user' ? 'user-message' : 'support-message'}`}
-          >
-            <div className="message-bubble">{msg.message}</div>
-            <div className="message-info">
-              {msg.userName} • {formatTime(msg.timestamp)}
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {typingIndicator && (
-        <div className="typing-indicator">Support is typing...</div>
       )}
-
-      <div className="chat-input-container">
-        <div className="chat-input-wrapper">
-          <input
-            type="text"
-            className="chat-input"
-            placeholder="Type your message..."
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-          />
-          <button className="send-button" onClick={handleSend}>
-            Send
-          </button>
-        </div>
-      </div>
-    </div>
+    </>
   );
 }
-
